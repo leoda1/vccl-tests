@@ -376,16 +376,40 @@ testResult_t CheckData(struct threadArgs* args, ncclDataType_t type, ncclRedOp_t
       cudaMemcpy(expectedHost, args->expected[i], args->expectedBytes, cudaMemcpyDeviceToHost);
       cudaMemcpy(dataHost, data, args->expectedBytes, cudaMemcpyDeviceToHost);
 
-      for(int j=0; j<args->expectedBytes/eltsz; j++) {
-        unsigned long long want, got;
-        want = 0;
+      size_t dumpBytes = args->expectedBytes < 1024 ? args->expectedBytes : 1024;
+      size_t zeroBytes = 0;
+      size_t diffElts = 0;
+      size_t firstDiffElt = (size_t)-1;
+
+      for (size_t b = 0; b < dumpBytes; b++) {
+        if ((unsigned char)dataHost[b] == 0) zeroBytes++;
+      }
+      printf(" rank=%d first %zuB: zero-bytes=%zu/%zu\n", rank, dumpBytes, zeroBytes, dumpBytes);
+
+      printf(" rank=%d data(first %zuB, hex):", rank, dumpBytes);
+      for (size_t b = 0; b < dumpBytes; b++) {
+        if (b % 32 == 0) printf("\n  %04zu:", b);
+        printf(" %02x", (unsigned char)dataHost[b]);
+      }
+      printf("\n");
+
+      for (size_t j = 0; j < args->expectedBytes/(size_t)eltsz; j++) {
+        unsigned long long want = 0, got = 0;
         memcpy(&want, expectedHost + j*eltsz, eltsz);
-        got = 0;
         memcpy(&got, dataHost + j*eltsz, eltsz);
-        if(want != got) {
-          printf(" rank=%d elt[%d]: want=0x%llx got=0x%llx\n", rank, j, want, got);
+        if (want != got) {
+          if (firstDiffElt == (size_t)-1) firstDiffElt = j;
+          diffElts++;
         }
       }
+      if (firstDiffElt != (size_t)-1) {
+        unsigned long long want = 0, got = 0;
+        memcpy(&want, expectedHost + firstDiffElt*eltsz, eltsz);
+        memcpy(&got, dataHost + firstDiffElt*eltsz, eltsz);
+        printf(" rank=%d first-diff elt[%zu]: want=0x%llx got=0x%llx (diffElts=%zu)\n",
+               rank, firstDiffElt, want, got, diffElts);
+      }
+
       free(expectedHost);
       free(dataHost);
     }
